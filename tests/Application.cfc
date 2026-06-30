@@ -69,7 +69,6 @@ component {
 		}
 
 		switch( info.database_productname ) {
-			case "MariaDB":
 			case "MySQL":
 				if ( Val( info.database_version ) lt 5 ) {
 					throw(
