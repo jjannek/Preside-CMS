@@ -348,7 +348,7 @@
 			var constraints = "";
 			var cascadeType = _getDbAdapter().supportsCascadeUpdateDelete() ? "cascade" : "error";
 			var expectedResult = {
-				"fk_42709d43f4e9e0a700118b1d05838c80" = {
+				"fk_68b93184ca187945fc94dcc2c45b22b2" = {
 					  pk_table  = "ptest_object_a"
 					, fk_table  = "ptest_object_b"
 					, pk_column = "id"
@@ -356,7 +356,7 @@
 					, on_update = cascadeType
 					, on_delete = cascadeType
 				},
-				"fk_dca37975fb35a68ddd367abaa9fc79ff" = {
+				"fk_634ad17bf9056fa78ba3fd70a61d503a" = {
 					  pk_table  = "ptest_object_b"
 					, fk_table  = "ptest_object_c"
 					, pk_column = "id"
@@ -364,7 +364,7 @@
 					, on_update = cascadeType
 					, on_delete = cascadeType
 				},
-				"fk_04256baa79b5ed9099b1dde0da7eb613" = {
+				"fk_b3e293ff582e9915261c9d9e51480fbc" = {
 					  pk_table  = "ptest_object_a"
 					, fk_table  = "ptest_object_b"
 					, pk_column = "id"
@@ -390,7 +390,7 @@
 			var poService = _getService( objectDirectories=[ "/tests/resources/PresideObjectService/componentsWithRelationship/" ] );
 			var constraints = "";
 			var expectedResult = {
-				"fk_142d828e532be648a208122b793acd09" = {
+				"fk_c35a8ccc740f04333bd7a8ad92e61898" = {
 					  pk_table  = "ptest_object_a"
 					, fk_table  = "ptest_object_b"
 					, pk_column = "id"
@@ -398,7 +398,7 @@
 					, on_update = "cascade"
 					, on_delete = "set null"
 				},
-				"fk_ee8b3bcde97ee8b5b8dff6de1bb5682f" = {
+				"fk_36d0853edc3eb98c89e9bba5c614fb7a" = {
 					  pk_table  = "ptest_object_a"
 					, fk_table  = "ptest_object_c"
 					, pk_column = "id"

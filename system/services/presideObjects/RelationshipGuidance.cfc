@@ -248,7 +248,7 @@ component singleton=true presideservice=true {
 						property.onUpdate = "cascade";
 					}
 
-					keyName = "fk_#LCase( Hash( LCase( SerializeJson( property ) & objectName ) ) )#";
+					keyName = "fk_#LCase( Hash( LCase( _canonicalizeForHash( property ) & objectName ) ) )#";
 
 					if ( not StructKeyExists( object.meta, "relationships" ) ) {
 						object.meta.relationships = {};
@@ -559,6 +559,58 @@ component singleton=true presideservice=true {
 		}
 
 		return "";
+	}
+
+	/**
+	 * Builds a deterministic serialization of a value for use as hash input.
+	 *
+	 * Plain CFML structs are unordered, so SerializeJson() key order is engine-defined
+	 * (Lucee emits its internal hash-map order, RustCFML declaration order). Anything
+	 * hashed straight from SerializeJson() therefore differs between engines — which is
+	 * how the same schema ended up with different foreign key constraint names.
+	 *
+	 * Sorting keys fixes the ordering half. The other half is scalar spelling: boolean
+	 * attributes read back from component metadata as "yes"/"no" on Lucee but
+	 * "true"/"false" on RustCFML, so those are normalised too. Only recognised boolean
+	 * *strings* are folded — numerics are left alone, so maxLength=1 is never confused
+	 * with a boolean.
+	 */
+	private string function _canonicalizeForHash( required any value ) {
+		if ( IsStruct( arguments.value ) ) {
+			var sortedKeys = [];
+			for ( var key in StructKeyArray( arguments.value ) ) {
+				ArrayAppend( sortedKeys, LCase( key ) );
+			}
+			ArraySort( sortedKeys, "text" );
+
+			var parts = [];
+			for ( var key in sortedKeys ) {
+				var entry = IsNull( arguments.value[ key ] ) ? "null" : _canonicalizeForHash( arguments.value[ key ] );
+				ArrayAppend( parts, key & ":" & entry );
+			}
+
+			return "{" & ArrayToList( parts, "," ) & "}";
+		}
+
+		if ( IsArray( arguments.value ) ) {
+			var items = [];
+			for ( var item in arguments.value ) {
+				ArrayAppend( items, IsNull( item ) ? "null" : _canonicalizeForHash( item ) );
+			}
+
+			return "[" & ArrayToList( items, "," ) & "]";
+		}
+
+		if ( IsSimpleValue( arguments.value ) ) {
+			switch( LCase( arguments.value ) ) {
+				case "yes": case "true" : return "true";
+				case "no" : case "false": return "false";
+			}
+
+			return arguments.value;
+		}
+
+		return SerializeJson( arguments.value );
 	}
 
 // GETTERS AND SETTERS

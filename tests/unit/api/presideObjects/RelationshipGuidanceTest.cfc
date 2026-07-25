@@ -299,8 +299,8 @@
 						, sort_order = { name="sort_order", control="auto", type="numeric" , dbtype="int" , maxLength="0", generator="none", generate="never", relationship="none", required=false }
 					  }
 					, relationships = {
-						  "fk_4a66d2b6e74d782ba00f9d7415b82ea6" = { pk_table="pobj_obj_a", fk_table="pobj_obj_a__join__obj_b", pk_column="id", fk_column="obj_a", on_update="cascade", on_delete="cascade" }
-						, "fk_87af648ebd957bdebdc810cb8ccf04be" = { pk_table="pobj_obj_b", fk_table="pobj_obj_a__join__obj_b", pk_column="id", fk_column="obj_b", on_update="cascade", on_delete="cascade" }
+						  "fk_a3b7dd562ec3dc1422729fb160d1d790" = { pk_table="pobj_obj_a", fk_table="pobj_obj_a__join__obj_b", pk_column="id", fk_column="obj_a", on_update="cascade", on_delete="cascade" }
+						, "fk_ddb803619a8b9f1479682d0f343c1af1" = { pk_table="pobj_obj_b", fk_table="pobj_obj_a__join__obj_b", pk_column="id", fk_column="obj_b", on_update="cascade", on_delete="cascade" }
 					  }
 				  }
 			};
