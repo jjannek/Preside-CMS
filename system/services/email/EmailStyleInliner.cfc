@@ -1,6 +1,17 @@
 /**
  * Service to convert html email styles to be inline.
  *
+ * Style inlining is done with jSoup, which requires a JVM. Where no JVM is available
+ * (RustCFML), building it throws — and because this is a singleton built during
+ * application startup, that aborted the whole boot rather than just disabling style
+ * inlining. So an unavailable parser now degrades: inlineStyles() returns the HTML
+ * untouched and readStyles() returns no rules, which is exactly what already happens
+ * when the `emailStyleInliner` feature is switched off.
+ *
+ * The condition is announced once at startup rather than passed over quietly — emails
+ * that silently stop having their styles inlined render badly in clients that drop
+ * `<style>` blocks, and that is much harder to trace back than a startup message.
+ *
  * @singleton      true
  * @autodoc        true
  * @presideService true
@@ -18,12 +29,23 @@ component {
 		  required any styleCache
 		, required any templateCache
 	) {
-		_jsoup = _new( "org.jsoup.Jsoup" );
+		_setupJsoup();
 
 		_setStyleCache( arguments.styleCache );
 		_setTemplateCache( arguments.templateCache );
 
 		return this;
+	}
+
+	/**
+	 * Whether style inlining is actually available in this environment. False when the
+	 * underlying HTML parser could not be loaded, in which case inlineStyles() returns
+	 * its input unchanged.
+	 *
+	 * @autodoc
+	 */
+	public boolean function isAvailable() {
+		return variables._available ?: false;
 	}
 
 	/**
@@ -35,6 +57,10 @@ component {
 	 * @html.hint the original HTML
 	 */
 	public string function inlineStyles( required string html, array styles, string cacheSuffix="" ) {
+		if ( !isAvailable() ) {
+			return arguments.html;
+		}
+
  		if ( !$helpers.hasTags( arguments.html ) ) {
 			return arguments.html;
 		}
@@ -100,6 +126,10 @@ component {
 	 * @doc.hint  the original HTML, or a jSoup doc
 	 */
 	public array function readStyles( required any doc ) {
+		if ( !isAvailable() ) {
+			return [];
+		}
+
 		if ( IsSimpleValue( arguments.doc ) ) {
 			arguments.doc = _jsoup.parse( arguments.doc );
 		}
@@ -149,6 +179,23 @@ component {
 	}
 
 // PRIVATE HELPERS
+
+	private void function _setupJsoup() {
+		try {
+			_jsoup = _new( "org.jsoup.Jsoup" );
+			variables._available = true;
+		} catch ( any e ) {
+			// No JVM / no jSoup: disable inlining rather than abort application startup.
+			variables._available = false;
+
+			SystemOutput(
+				"Preside System Output: email style inlining is DISABLED - the HTML parser "
+				& "could not be loaded ([#( e.message ?: '' )#]). Emails will still send, but "
+				& "their <style> blocks will not be converted to inline styles, which some "
+				& "email clients ignore." & Chr( 13 ) & Chr( 10 )
+			);
+		}
+	}
 
 	private any function _new( required string className ) {
 		return CreateObject( "java", arguments.className, _getLib() );

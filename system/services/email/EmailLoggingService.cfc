@@ -34,9 +34,20 @@ component {
 		_setEmailStatsService( arguments.emailStatsService );
 		_setEmailBotDetectionService( arguments.emailBotDetectionService );
 
-		_jsoup = _new( "org.jsoup.Jsoup" );
+		_setupJsoup();
 
 		return this;
+	}
+
+	/**
+	 * Whether HTML link rewriting is actually available in this environment. False when
+	 * the underlying HTML parser could not be loaded, in which case message HTML is
+	 * returned unmodified and click tracking / link shortening do not apply.
+	 *
+	 * @autodoc
+	 */
+	public boolean function isAvailable() {
+		return variables._available ?: false;
 	}
 
 // PUBLIC API METHODS
@@ -652,6 +663,13 @@ component {
 		  required string messageId
 		, required string messageHtml
 	) {
+		// Return before the try/catch below rather than through it: the parser being
+		// absent is a known, already-announced startup condition, not a per-message
+		// error, and routing it through $raiseError() would log once per email sent.
+		if ( !isAvailable() ) {
+			return arguments.messageHtml;
+		}
+
 		var doc             = "";
 		var links           = "";
 		var link            = "";
@@ -1004,6 +1022,23 @@ component {
 
 	private date function _getNow() {
 		return Now(); // abstracting this makes testing easier
+	}
+
+	private void function _setupJsoup() {
+		try {
+			_jsoup = _new( "org.jsoup.Jsoup" );
+			variables._available = true;
+		} catch ( any e ) {
+			// No JVM / no jSoup: disable link rewriting rather than abort application startup.
+			variables._available = false;
+
+			SystemOutput(
+				"Preside System Output: email link rewriting is DISABLED - the HTML parser "
+				& "could not be loaded ([#( e.message ?: '' )#]). Emails will still send, but "
+				& "links will not be rewritten, so click tracking and link shortening will "
+				& "record nothing." & Chr( 13 ) & Chr( 10 )
+			);
+		}
 	}
 
 	private any function _new( required string className ) {
