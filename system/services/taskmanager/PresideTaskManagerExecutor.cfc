@@ -4,7 +4,7 @@
  * @feature        taskmanager
  *
  */
-component extends="cfconcurrent.ExecutorService" {
+component extends="preside.system.services.concurrency.BaseThreadedExecutor" {
 
 	/**
 	 * @hostname.inject      coldbox:setting:heartbeats.taskmanager.hostname
@@ -21,9 +21,8 @@ component extends="cfconcurrent.ExecutorService" {
 		_setHostname( arguments.hostName );
 
 		return super.init(
-			  serviceName       = "#arguments.serviceName#-#appName#"
-			, maxConcurrent     = arguments.maxConcurrent
-			, threadNamePattern = "#arguments.serviceName#-#appName#-${poolno}-Thread-${threadno}"
+			  serviceName   = "#arguments.serviceName#-#appName#"
+			, maxConcurrent = arguments.maxConcurrent
 		);
 	}
 

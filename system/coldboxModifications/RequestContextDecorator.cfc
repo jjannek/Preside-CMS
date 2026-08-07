@@ -214,7 +214,7 @@ component accessors=true extends="preside.system.coldboxModifications.RequestCon
 	}
 
 	public string function getServerName() {
-		return cgi.server_name;
+		return request.__presideBgThreadHost ?: cgi.server_name;
 	}
 
 	public string function getBaseUrl() {
