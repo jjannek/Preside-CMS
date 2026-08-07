@@ -28,7 +28,12 @@
  * closures capture enclosing scopes by copy, so mutations from a closure would
  * be lost. Plain lock blocks only.
  *
- * @nowirebox true
+ * NB2: deliberately NOT annotated with nowirebox — Preside's binder filter
+ * (config/WireBox.cfc:_containsNoWireboxInstruction) walks the EXTENDS chain,
+ * so nowirebox here would silently filter the executor subclasses out of
+ * registration too (found the hard way via app-smoke: "requested a missing
+ * dependency ... presideTaskManagerExecutor"). Being registered but never
+ * requested by name is harmless, like AbstractHeartBeat.
  */
 component displayname="BaseThreadedExecutor" {
 
