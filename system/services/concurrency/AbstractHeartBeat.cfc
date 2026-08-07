@@ -82,6 +82,7 @@ component {
 				$systemOutput( "Successfully shut down #_getThreadName()# heartbeat." );
 				break;
 			}
+			sleep( 100 );
 		}
 
 		if ( !taskFuture.isDone() && !taskFuture.isCancelled() ) {
