@@ -22,10 +22,6 @@ component {
 		      .stream()
 		      .toByteArray();
 
-		if ( arguments.imageType == "jpg" ) {
-			FileWrite( "/resources/qrcodes/helloWorld.jpg", binary );
-		}
-
 		return binary;
 	}
 
