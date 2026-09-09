@@ -4,6 +4,7 @@
 		<cfscript>
 			super.setup();
 			_emptyDatabase();
+			request.delete( "__cacheboxRequestCache" ); // CacheProvider keeps a per-request memo shared by every cache instance; tests must not inherit it from each other (test047 was order-dependent)
 		</cfscript>
 	</cffunction>
 
