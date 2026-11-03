@@ -1,4 +1,8 @@
 <!---@feature admin--->
+<cfif isLabEnabled( "datatablesOverhaul" )>
+	<cfoutput>#renderViewlet( event="admin.datamanager._objectDataTableModernFromLegacy", args=args )#</cfoutput>
+	<cfexit>
+</cfif>
 <cfscript>
 	param name="args.objectName"                  type="string";
 	param name="args.multiActions"                type="string"  default="";
@@ -106,7 +110,7 @@
 			</form>
 		</cfif>
 		<cfif args.useMultiActions>
-			<form id="multi-action-form-#instanceId#" class="form-horizontal multi-action-form" method="post" action="#args.multiActionUrl#">
+			<form id="multi-action-form-#instanceId#" data-prevent-multiple-submit="true" class="form-horizontal multi-action-form" method="post" action="#args.multiActionUrl#">
 				<input type="hidden" name="multiAction" value="" />
 		</cfif>
 

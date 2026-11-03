@@ -52,9 +52,10 @@ component extends="preside.system.services.concurrency.BaseThreadedExecutor" {
 			, future   = future
 			, periodMs = factory.toMs( arguments.period, arguments.timeUnit )
 			, hostname = arguments.hostname
+			, chainId  = CreateUUId()
 		};
 
-		_spawnTick( arguments.id, factory.toMs( arguments.initialDelay, arguments.timeUnit ) );
+		_spawnTick( arguments.id, factory.toMs( arguments.initialDelay, arguments.timeUnit ), variables._storedTasks[ arguments.id ].chainId );
 
 		return future;
 	}
@@ -73,11 +74,16 @@ component extends="preside.system.services.concurrency.BaseThreadedExecutor" {
 	/**
 	 * Executed from within each tick thread: runs the task once, then
 	 * schedules the next tick (fixed-delay). Not for external use.
+	 *
+	 * chainId ties a tick to the scheduleAtFixedRate() call that spawned it, so a
+	 * tick still sleeping from a cancelled schedule cannot adopt a newer schedule
+	 * registered under the same id (stop() + start() would otherwise leave two
+	 * tick chains running the same task).
 	 */
-	public void function runScheduledTick( required string id ) {
+	public void function runScheduledTick( required string id, string chainId="" ) {
 		var entry = variables._storedTasks[ arguments.id ] ?: NullValue();
 
-		if ( IsNull( local.entry ) || entry.future.isCancelled() || isStopped() ) {
+		if ( IsNull( local.entry ) || entry.future.isCancelled() || isStopped() || entry.chainId != arguments.chainId ) {
 			return;
 		}
 
@@ -92,8 +98,9 @@ component extends="preside.system.services.concurrency.BaseThreadedExecutor" {
 			} catch( any logErr ) {}
 		}
 
-		if ( !entry.future.isCancelled() && !isStopped() && StructKeyExists( variables._storedTasks, arguments.id ) ) {
-			_spawnTick( arguments.id, entry.periodMs );
+		var current = variables._storedTasks[ arguments.id ] ?: NullValue();
+		if ( !entry.future.isCancelled() && !isStopped() && !IsNull( local.current ) && current.chainId == arguments.chainId ) {
+			_spawnTick( arguments.id, entry.periodMs, arguments.chainId );
 		}
 	}
 
@@ -138,14 +145,14 @@ component extends="preside.system.services.concurrency.BaseThreadedExecutor" {
 	}
 
 // private helpers
-	private void function _spawnTick( required string id, required numeric delayMs ) {
+	private void function _spawnTick( required string id, required numeric delayMs, required string chainId ) {
 		var threadName = "#getServiceName()#-tick-#CreateUUId()#";
 
-		thread name=threadName xid=arguments.id xdelay=arguments.delayMs xexecutor=this {
+		thread name=threadName xid=arguments.id xdelay=arguments.delayMs xchain=arguments.chainId xexecutor=this {
 			if ( attributes.xdelay > 0 ) {
 				sleep( attributes.xdelay );
 			}
-			attributes.xexecutor.runScheduledTick( attributes.xid );
+			attributes.xexecutor.runScheduledTick( attributes.xid, attributes.xchain );
 		}
 	}
 
