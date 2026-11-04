@@ -45,13 +45,13 @@ component extends="preside.system.base.AdminHandler" {
 			setNextEvent( url=prc.task.result_url );
 		}
 
-		var taskTitleData = IsJson( prc.task.title_data ?: "" ) ? DeserializeJson( prc.task.title_data ) : [];
+		var taskTitleData = IsJson( prc.task.title_args ?: "" ) ? DeserializeJson( prc.task.title_args ) : [];
 		var taskTitle = translateResource( uri=prc.task.title, data=taskTitleData, defaultValue=prc.task.title );
 
 		prc.taskProgress = adHocTaskManagerService.getProgress( taskId );
 
 		if ( prc.task.status == "pending" ) {
-			prc.taskProgress.timeTaken = translateResource( "enum.adhocTaskStatus:pending.title" );
+			prc.taskProgress.timeTaken = renderEnum( data="pending", enum="adhocTaskStatus", property="title" );
 			prc.taskProgress.log       = logRendererUtil.renderLegacyLogs( translateResource( "cms:adhoctaskmanager.progress.pending.log" ) );
 			prc.taskProgress.lineCount = 0;
 		} else {
@@ -71,7 +71,7 @@ component extends="preside.system.base.AdminHandler" {
 			prc.canCancel = prc.task.status == "running" || prc.task.status == "pending";
 			prc.canCancel = prc.canCancel && ( prc.task.admin_owner == event.getAdminUserId() || hasCmsPermission( "adhocTaskManager.canceltask" ) );
 		}
-		
+
 		prc.pageTitle    = translateResource( uri="cms:adhoctaskmanager.progress.page.title", data=[ taskTitle ] );
 		prc.pageSubtitle = translateResource( uri="cms:adhoctaskmanager.progress.page.subtitle", data=[ taskTitle ] );
 
@@ -95,7 +95,7 @@ component extends="preside.system.base.AdminHandler" {
 		taskProgress.log          = logRendererUtil.renderLogs( adhocTaskManagerService.getLogLines( taskId, fetchAfter ), fetchAfter );
 
 		if ( task.status == "pending" ) {
-			taskProgress.timeTaken = translateResource( "enum.adhocTaskStatus:pending.title" );
+			taskProgress.timeTaken = renderEnum( data="pending", enum="adhocTaskStatus", property="title" );
 		} else {
 			taskProgress.timeTaken = renderContent( renderer="TaskTimeTaken", data=taskProgress.timeTaken*1000, context=[ "accurate" ] );
 		}

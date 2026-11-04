@@ -1,13 +1,13 @@
 /**
  * @feature admin and dataExport
  */
-component {
+component extends="preside.system.base.AdminHandler" {
 	property name="presideObjectService"      inject="presideObjectService";
 	property name="scheduledExportService"    inject="scheduledExportService";
 	property name="customizationService"      inject="dataManagerCustomizationService";
 	property name="datamanagerService"        inject="datamanagerService";
 	property name="messageBox"                inject="messagebox@cbmessagebox";
-	property name="cronUtil"                  inject="cronUtil";
+	property name="cronUtil"                  inject="chrono@chrono";
 	property name="i18n"                      inject="i18n";
 	property name="dataExportTemplateService" inject="dataExportTemplateService";
 	property name="formsService"              inject="FormsService";
@@ -34,7 +34,6 @@ component {
 		var records = args.records ?: QueryNew('');
 
 		for ( var record in records ) {
-			querySetCell( records, "label", _decorateLabelForListing( record.id ), queryCurrentRow( records ) );
 			querySetCell( records, "schedule", cronUtil.describeCronTabExression( record.schedule, i18n.getFwLanguageCode() ), queryCurrentRow( records ) );
 		}
 	}
@@ -159,6 +158,10 @@ component {
 	}
 
 	public void function adhocRunSavedExport( event, rc, prc, args={} ) {
+		if ( !hasCmsPermission( "savedExport.edit" ) ) {
+			event.adminAccessDenied();
+		}
+
 		var recordId = rc.savedExportId ?: "";
 
 		if ( !isEmptyString( recordId ) ) {
@@ -225,23 +228,5 @@ component {
 			  templateId = ( args.record.template ?: "" )
 			, objectName = rc.filterObject
 		);
-	}
-
-// HELPERS
-	private string function _decorateLabelForListing( required string recordId ) {
-		var detail     = presideObjectService.selectData( objectName="saved_export", id=arguments.recordId );
-		var objectName = detail.object_name ?: "";
-		var baseUri    = "";
-
-		args.icon        = "";
-		args.label       = detail.label       ?: "";
-		args.description = detail.description ?: "";
-
-		if ( !isEmpty( objectName ) ) {
-			baseUri   = presideObjectService.getResourceBundleUriRoot( objectName );
-			args.icon = translateResource( uri=baseUri & "iconclass", defaultValue="fa-database" );
-		}
-
-		return renderView( view="/admin/savedExport/_savedExportLabel", args=args );
 	}
 }

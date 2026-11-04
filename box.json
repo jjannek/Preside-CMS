@@ -39,7 +39,8 @@
         "cbjavaloader":"1.5.0+35",
         "coldbox":"5.4.0",
         "JSONPrettyPrint":"1.4.1",
-        "cfflow":"0.8.0"
+        "cfflow":"0.8.0",
+        "chrono":"0.1.2"
     },
     "devDependencies":{
         "testbox":"5.4.0"
@@ -55,7 +56,8 @@
         "cbstorages":"system/modules/cbstorages/",
         "cbjavaloader":"system/modules/cbjavaloader/",
         "coldbox":"system/externals/coldbox/",
-        "JSONPrettyPrint":"system/modules/JSONPrettyPrint/"
+        "JSONPrettyPrint":"system/modules/JSONPrettyPrint/",
+        "chrono":"system/modules/chrono/"
     },
     "ignore":[
         ".git/*",
@@ -63,7 +65,13 @@
         ".travis.yml",
         ".twgit_features_subject",
         "build.sh",
-        "test.sh"
+        "test.sh",
+        "system/assets/tiptap/src/*",
+        "system/assets/tiptap/harness/*",
+        "system/assets/tiptap/node_modules/*",
+        "system/assets/tiptap/package.json",
+        "system/assets/tiptap/package-lock.json",
+        "system/assets/tiptap/esbuild.mjs"
     ],
     "testbox":{
         "runner":"http://127.0.0.1:9999/runtests.cfm"

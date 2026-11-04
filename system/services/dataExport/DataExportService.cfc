@@ -120,7 +120,7 @@ component {
 		selectDataArgs.autoGroupBy  = true;
 		selectDataArgs.useCache     = false;
 		selectDataArgs.selectFields = _expandRelationshipFields( arguments.objectname, selectDataArgs.selectFields, arguments.expandNestedFields );
-		selectDataArgs.distinct     = true;
+		selectDataArgs.groupBy      = presideObjectService.getIdField( arguments.objectName );
 		selectDataArgs.orderBy      = _getOrderBy( arguments.objectName, arguments.orderBy );
 		selectDataArgs.extraFilters = selectDataArgs.extraFilters ?: [];
 		selectDataArgs.gridFields   = selectDataArgs.gridFields   ?: [];
@@ -193,7 +193,11 @@ component {
 				}
 
 				if ( renderType == "enum" ) {
-					return $translateResource( uri="enum.#propertyDefinitions[ arguments.fieldName ].enum#:#arguments.value#.label", defaultValue=arguments.value );
+					return $helpers.renderEnum(
+						  data     = arguments.value
+						, enum     = propertyDefinitions[ arguments.fieldName ].enum
+						, property = "label"
+					);
 				}
 			}
 

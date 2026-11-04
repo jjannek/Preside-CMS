@@ -3,7 +3,7 @@
 	templateId = rc.id ?: "";
 	ajaxUrl    = event.buildAdminLink( linkTo="emailCenter.customTemplates.getLogsForAjaxDataTables", querystring="id=" & templateid );
 	showClicks = IsTrue( prc.showClicks ?: "" );
-	gridFields = [ "recipient", "subject", "datecreated", "sent", "delivered", "failed", "opened" ];
+	gridFields = [ "recipient", "subject", "datecreated", "sent", "delivered", "failed", "opened", "open_count" ];
 
 	if ( showClicks ) {
 		gridFields.append( "click_count" );
@@ -18,7 +18,7 @@
 </cfscript>
 <cfoutput>
 	<cfsavecontent variable="body">
-		#renderView( view="/admin/datamanager/_objectDataTable", args={
+		#renderView( view=getObjectDataTableView(), args={
 			  objectName      = "email_template_send_log"
 			, useMultiActions = false
 			, datasourceUrl   = ajaxUrl

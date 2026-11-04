@@ -443,26 +443,23 @@ component autodoc=true displayName="Notification Service" {
 			_getUserDao().updateData( id=arguments.userId, data={ subscribed_to_all_notifications=false } );
 		}
 
-		transaction {
+		var currentSubscriptions = getUserSubscriptions( arguments.userId );
 
-			var currentSubscriptions = getUserSubscriptions( arguments.userId );
-
-			for( var topic in currentSubscriptions ) {
-				if ( !arguments.topics.find( topic ) ) {
-					forDeletion.append( topic );
-				}
+		for( var topic in currentSubscriptions ) {
+			if ( !arguments.topics.find( topic ) ) {
+				forDeletion.append( topic );
 			}
-			if ( forDeletion.len() ) {
-				subscriptionDao.deleteData( filter={ security_user = arguments.userId, topic=forDeletion } );
-			}
+		}
+		if ( forDeletion.len() ) {
+			subscriptionDao.deleteData( filter={ security_user = arguments.userId, topic=forDeletion } );
+		}
 
-			for( var topic in arguments.topics ) {
-				if ( !currentSubscriptions.find( topic ) ) {
-					subscriptionDao.insertData({
-						  security_user = arguments.userId
-						, topic         = topic
-					});
-				}
+		for( var topic in arguments.topics ) {
+			if ( !currentSubscriptions.find( topic ) ) {
+				subscriptionDao.insertData({
+					  security_user = arguments.userId
+					, topic         = topic
+				});
 			}
 		}
 	}
@@ -479,22 +476,21 @@ component autodoc=true displayName="Notification Service" {
 		for( var userId in subscribers ){
 			if ( userHasAccessToTopic( userId, arguments.topic ) ) {
 				var filter = { admin_notification=arguments.notificationId, security_user=userId };
-				transaction {
-					if ( !_getConsumerDao().updateData( filter=filter, data={ read=false } ) ) {
-						interceptorArgs.subscription = subscribers[ userId ];
-						_announceInterception( "preCreateNotificationConsumer", interceptorArgs );
 
-						_getConsumerDao().insertData( data={
-							  admin_notification = arguments.notificationId
-							, security_user      = userId
-						} );
+				if ( !_getConsumerDao().updateData( filter=filter, data={ read=false } ) ) {
+					interceptorArgs.subscription = subscribers[ userId ];
+					_announceInterception( "preCreateNotificationConsumer", interceptorArgs );
 
-						if ( IsBoolean( subscribers[ userId ].get_email_notifications ?: "" ) && subscribers[ userId ].get_email_notifications ) {
-							sendSubsciberNotificationEmail( recipient=userId, topic=arguments.topic, notificationId=arguments.notificationId, data=arguments.data );
-						}
+					_getConsumerDao().insertData( data={
+						  admin_notification = arguments.notificationId
+						, security_user      = userId
+					} );
 
-						_announceInterception( "postCreateNotificationConsumer", interceptorArgs );
+					if ( IsBoolean( subscribers[ userId ].get_email_notifications ?: "" ) && subscribers[ userId ].get_email_notifications ) {
+						sendSubsciberNotificationEmail( recipient=userId, topic=arguments.topic, notificationId=arguments.notificationId, data=arguments.data );
 					}
+
+					_announceInterception( "postCreateNotificationConsumer", interceptorArgs );
 				}
 			}
 		}
@@ -603,6 +599,7 @@ component autodoc=true displayName="Notification Service" {
 		var topicsToInsert   = [];
 		var notificationDirs = _getNotificationDirectories();
 		var notificationIds  = [];
+		var topicFeatures    = {};
 
 		for( var notificationDir in notificationDirs ){
 			var notifications           = [];
@@ -616,7 +613,22 @@ component autodoc=true displayName="Notification Service" {
 			for( var notification in notifications ){
 				notificationId = Replace( notification, notificationDirExpanded, "" );
 				notificationId = ListDeleteAt( notificationId, ListLen( notificationId, "." ), "." );
-				arrayAppend( notificationIds, notificationId );
+
+				var feature = _getFeatureFromNotificationFile( notification );
+
+				topicFeatures[ notificationId ] = feature;
+
+				if ( !Len( feature ) || $isFeatureEnabled( feature ) ) {
+					ArrayAppend( notificationIds, notificationId );
+				}
+			}
+		}
+
+		for ( var idx=ArrayLen( configuredTopics ); idx>0; idx-- ) {
+			var feature = topicFeatures[ configuredTopics[ idx ] ] ?: "";
+
+			if ( Len( feature ) && !$isFeatureEnabled( feature ) ) {
+				ArrayDeleteAt( configuredTopics, idx );
 			}
 		}
 
@@ -646,6 +658,13 @@ component autodoc=true displayName="Notification Service" {
 			_getTopicDao().insertData( { topic=topic } );
 		}
 
+	}
+
+	private string function _getFeatureFromNotificationFile( required string filePath ) {
+		var fileContent = FileRead( arguments.filePath );
+		var result      = ReFindNoCase( "@feature\s+([^\s*\/]+)", fileContent, 1, true );
+
+		return result.len[ 1 ] > 0 ? Mid( fileContent, result.pos[ 2 ], result.len[ 2 ] ) : "";
 	}
 
 // GETTERS AND SETTERS

@@ -4,13 +4,14 @@
  *
  */
 component {
+	property name="enumService" inject="enumService";
 
 // CONSTRUCTOR
 
 	/**
 	 * @coldbox.inject                      coldbox
 	 * @assetRendererService.inject         featureInjector:assetManager:AssetRendererService
-	 * @widgetsService.inject               featureInjector:cms:WidgetsService
+	 * @widgetsService.inject               featureInjector:widgets:WidgetsService
 	 * @presideObjectService.inject         PresideObjectService
 	 * @labelRendererService.inject         labelRendererService
 	 * @renderedAssetCache.inject           cachebox:renderedAssetCache
@@ -103,10 +104,11 @@ component {
 		  required string  object
 		, required string  property
 		, required string  data
-		,          any     context  = "default"
-		,          boolean editable = false
-		,          string  recordId = ""
-		,          struct  record   = {}
+		,          any     context    = "default"
+		,          boolean editable   = false
+		,          string  recordId   = ""
+		,          struct  record     = {}
+		,          boolean autoEncode = false
 
 	) {
 		var renderer = _getRendererForPresideObjectProperty( arguments.object, arguments.property );
@@ -124,7 +126,7 @@ component {
 				  }
 			);
 		} else {
-			rendered = arguments.data;
+			rendered = arguments.autoEncode ? EncodeForHTML( arguments.data ) : arguments.data;
 		}
 
 		if ( arguments.editable ) {
@@ -144,16 +146,43 @@ component {
 
 	public string function renderEnum(
 		  required string data
-		,          string enum         = ""
-		,          string objectName   = ""
-		,          string propertyName = ""
-		,          any    context      = "default"
-		,          string recordId     = ""
-		,          string enumRenderer = ""
+		,          string enum            = ""
+		,          string objectName      = ""
+		,          string propertyName    = ""
+		,          string property        = ""
+		,          string defaultValue
+		,          array  translationData = []
+		,          any    context         = "default"
+		,          string recordId        = ""
+		,          string enumRenderer    = ""
 	) {
-		if ( !$helpers.isEmptyString( arguments.objectName ) && !$helpers.isEmptyString( arguments.propertyName ) ) {
+		if ( !Len( Trim( arguments.enum ) ) && Len( Trim( arguments.objectName ) ) && Len( Trim( arguments.propertyName ) ) ) {
+			arguments.enum = $getPresideObjectService().getObjectPropertyAttribute(
+				  objectName    = arguments.objectName
+				, propertyName  = arguments.propertyName
+				, attributeName = "enum"
+				, defaultValue  = ""
+			);
+		}
+
+		if ( Len( Trim( arguments.property ) ) ) {
+			var translationArgs = {
+				  enum     = arguments.enum
+				, key      = arguments.data
+				, property = arguments.property
+				, data     = arguments.translationData
+			};
+
+			if ( StructKeyExists( arguments, "defaultValue" ) ) {
+				translationArgs.defaultValue = arguments.defaultValue;
+			}
+
+			return _getEnumService().translate( argumentCollection=translationArgs );
+		}
+
+		if ( Len( Trim( arguments.objectName ) ) && Len( Trim( arguments.propertyName ) ) ) {
 			arguments.enumRenderer = $getPresideObjectService().getObjectPropertyAttribute( objectName=arguments.objectName, propertyName=arguments.propertyName, attributeName="enumRenderer", defaultValue="enumLabel" );
-		} else if ( $helpers.isEmptyString( arguments.enumRenderer ) ) {
+		} else if ( !Len( Trim( arguments.enumRenderer ) ) ) {
 			arguments.enumRenderer = "enumLabel";
 		}
 
@@ -167,6 +196,18 @@ component {
 				, propertyName = arguments.propertyName
 				, recordId     = arguments.recordId
 			  }
+		);
+	}
+
+	public string function getEnumTranslationUri(
+		  required string data
+		, required string enum
+		, required string property
+	) {
+		return _getEnumService().getTranslationUri(
+			  enum     = arguments.enum
+			, key      = arguments.data
+			, property = arguments.property
 		);
 	}
 
@@ -302,7 +343,7 @@ component {
 	}
 
 	public string function renderEmbeddedImages( required string richContent, string context="richeditor", string postProcessor="", struct postProcessorArgs={} ) {
-		if ( !$isFeatureEnabled( "cms" ) ) {
+		if ( !$isFeatureEnabled( "assetmanager" ) ) {
 			return arguments.richContent;
 		}
 
@@ -415,7 +456,7 @@ component {
 	}
 
 	public string function renderEmbeddedWidgets( required string richContent, string context="", string postProcessor="", struct postProcessorArgs={} ) {
-		if ( !$isFeatureEnabled( "cms" ) ) {
+		if ( !$isFeatureEnabled( "widgets" ) ) {
 			return arguments.richContent;
 		}
 		var widgetPattern = "\{\{widget:([a-zA-Z\$_][a-zA-Z0-9\$_]*):(.*?):widget\}\}";
@@ -669,5 +710,9 @@ component {
 	}
 	private void function _setDynamicFindAndReplaceService( required any dynamicFindAndReplaceService ) {
 	    _dynamicFindAndReplaceService = arguments.dynamicFindAndReplaceService;
+	}
+
+	private any function _getEnumService() {
+		return enumService;
 	}
 }

@@ -776,6 +776,335 @@ component displayName="Preside Object Service" {
 	}
 
 	/**
+	 * Inserts a record or updates an existing record when a matching unique key already exists.
+	 * Uses a single atomic database upsert statement where the adapter supports it, avoiding
+	 * read-then-write races that can occur with separate update and insert calls.
+	 * \n
+	 * ${arguments}
+	 * \n
+	 * ## Examples
+	 * \n
+	 * ```luceescript
+	 * result = presideObjectService.upsertData(
+	 *       objectName   = "system_config"
+	 *     , data         = { category="myapp", setting="mysetting", value="myvalue", site="", tenant_id="" }
+	 *     , matchColumns = [ "category", "setting", "site", "tenant_id" ]
+	 * );
+	 * // result.id       = record id
+	 * // result.inserted = true when a new record was created, false when an existing record was updated
+	 * ```
+	 *
+	 * @objectName.hint                 Name of the object whose record you want to upsert
+	 * @data.hint                       Structure of data to insert or update. Keys should map to properties on the object. All match columns must be present.
+	 * @matchColumns.hint               Array of property names whose combined values identify an existing record via a unique index
+	 * @updateColumns.hint              Array of property names to update when a matching record already exists. Defaults to all data properties that are not match columns.
+	 * @insertManyToManyRecords.hint    Whether or not to insert multiple relationship records for properties that have a many-to-many relationship
+	 * @isDraft.hint                    Whether or not the record change is a draft change
+	 * @useVersioning.hint              Whether or not to use the versioning system with the upsert
+	 * @versionNumber.hint              If using versioning, specify a version number to save against
+	 * @clearCaches.hint                Whether or not to clear caches related to the object
+	 * @timeout.hint                    Timeout, in seconds, of the main upsert DB query
+	 * @useVersioning.docdefault        automatic
+	 * @clearCaches.docdefault          Defaults to whether query caching is enabled or not for this object
+	 */
+	public struct function upsertData(
+		  required string  objectName
+		, required struct  data
+		, required array   matchColumns
+		,          array   updateColumns             = []
+		,          boolean insertManyToManyRecords   = false
+		,          boolean isDraft                     = false
+		,          boolean useVersioning               = objectIsVersioned( arguments.objectName )
+		,          numeric versionNumber               = 0
+		,          boolean clearCaches                 = _objectUsesCaching( arguments.objectName )
+		,          numeric timeout                     = _getDefaultTimeout()
+	) autodoc=true {
+		var interceptorResult = _announceInterception( "preUpsertObjectData", arguments );
+
+		if ( IsBoolean( interceptorResult.abort ?: "" ) && interceptorResult.abort ) {
+			return interceptorResult.returnValue ?: { id="", inserted=false };
+		}
+
+		var args               = _cleanupPropertyAliases( argumentCollection=_deepishDuplicate( arguments ) );
+		var obj                = _getObject( args.objectName ).meta;
+		var adapter            = _getAdapter( obj.dsn );
+		var dateCreatedField   = getDateCreatedField( args.objectName );
+		var dateModifiedField  = getDateModifiedField( args.objectName );
+		var idField            = getIdField( args.objectName );
+		var key                = "";
+		var cleanedData        = _addDefaultValuesToDataSet( args.objectName, args.data );
+		var manyToManyData     = {};
+		var matchFilter        = {};
+		var rightNow           = DateFormat( Now(), "yyyy-mm-dd" ) & " " & TimeFormat( Now(), "HH:mm:ss" );
+		var requiresVersioning = args.useVersioning && objectIsVersioned( args.objectName );
+		var versionNumber      = 0;
+		var existedBefore      = false;
+		var oldData            = "";
+		var recordId           = "";
+		var inserted           = false;
+		var sql                = "";
+		var params             = "";
+		var result             = "";
+
+		if ( !ArrayLen( args.matchColumns ) ) {
+			throw(
+				  type    = "PresideObjects.upsertData.MissingMatchColumns"
+				, message = "upsertData() requires one or more match columns that map to a unique index on [#args.objectName#]"
+			);
+		}
+
+		for( key in args.matchColumns ) {
+			if ( !StructKeyExists( cleanedData, key ) ) {
+				throw(
+					  type    = "PresideObjects.upsertData.MissingMatchColumnValue"
+					, message = "upsertData() requires a value for match column [#key#] in the data argument"
+				);
+			}
+			matchFilter[ key ] = cleanedData[ key ];
+		}
+
+		cleanedData.append( _addGeneratedValues(
+			  operation  = "insert"
+			, objectName = args.objectName
+			, data       = cleanedData
+		) );
+
+		for( key in cleanedData ) {
+			if ( args.insertManyToManyRecords && getObjectPropertyAttribute( objectName, key, "relationship", "none" ).reFindNoCase( "(many|one)\-to\-many" ) ) {
+				manyToManyData[ key ] = cleanedData[ key ];
+			}
+			if ( !ListFindNoCase( obj.dbFieldList, key ) ) {
+				StructDelete( cleanedData, key );
+			}
+		}
+
+		existedBefore = dataExists(
+			  objectName = args.objectName
+			, filter     = matchFilter
+		);
+
+		if ( existedBefore ) {
+			if ( dateModifiedField.len() && StructKeyExists( obj.properties, dateModifiedField ) && !StructKeyExists( cleanedData, dateModifiedField ) ) {
+				cleanedData[ dateModifiedField ] = rightNow;
+			}
+			oldData = selectData(
+				  objectName       = args.objectName
+				, filter           = matchFilter
+				, allowDraftVersions = true
+				, fromVersionTable   = args.isDraft
+			);
+		} else {
+			if ( dateCreatedField.len() && StructKeyExists( obj.properties, dateCreatedField ) && !StructKeyExists( cleanedData, dateCreatedField ) ) {
+				cleanedData[ dateCreatedField ] = rightNow;
+			}
+			if ( dateModifiedField.len() && StructKeyExists( obj.properties, dateModifiedField ) && !StructKeyExists( cleanedData, dateModifiedField ) ) {
+				cleanedData[ dateModifiedField ] = rightNow;
+			}
+			if ( ListFindNoCase( obj.dbFieldList, idField ) && StructKeyExists( obj.properties, idField ) ) {
+				if ( !StructKeyExists( cleanedData, idField ) || !Len( Trim( cleanedData[ idField ] ) ) ) {
+					var newId = _generateNewIdWhenNecessary( generator=( obj.properties[ idField ].generator ?: "UUID" ) );
+					if ( Len( Trim( newId ) ) ) {
+						cleanedData[ idField ] = newId;
+					}
+				}
+			}
+		}
+
+		if ( objectUsesDrafts( args.objectName ) ) {
+			cleanedData._version_is_draft = cleanedData._version_has_drafts = args.isDraft;
+		}
+
+		if ( !ArrayLen( args.updateColumns ) ) {
+			args.updateColumns = [];
+			for( key in cleanedData ) {
+				if ( !ArrayFind( args.matchColumns, key ) ) {
+					args.updateColumns.append( key );
+				}
+			}
+		}
+
+		if ( existedBefore && oldData.recordCount ) {
+			for( var existingRecord in oldData ) {
+				for( var fieldName in ListToArray( obj.dbFieldList ) ) {
+					if ( StructKeyExists( existingRecord, fieldName ) ) {
+						if ( fieldName == idField || !StructKeyExists( cleanedData, fieldName ) ) {
+							cleanedData[ fieldName ] = existingRecord[ fieldName ];
+						}
+					}
+				}
+				break;
+			}
+		}
+
+		if ( !ArrayLen( args.updateColumns ) ) {
+			args.updateColumns = [ args.matchColumns[ 1 ] ];
+		}
+
+		if ( !adapter.supportsUpsertSql() ) {
+			return _upsertDataWithUpdateInsert( argumentCollection=args );
+		}
+
+		if ( requiresVersioning ) {
+			if ( existedBefore ) {
+				var preparedFilter = _prepareFilter(
+					  adapter            = adapter
+					, columnDefinitions  = obj.properties
+					, objectName         = args.objectName
+					, filter             = matchFilter
+					, filterParams       = {}
+					, extraFilters       = []
+					, savedFilters       = []
+				);
+				var changedData = {};
+
+				for( var record in oldData ) {
+					var changedFields = _getVersioningService().getChangedFields(
+						  objectName   = args.objectName
+						, recordId     = record[ idField ]
+						, newData      = cleanedData
+						, existingData = record
+					);
+
+					if ( ArrayLen( changedFields ) ) {
+						changedData[ record[ idField ] ] = {};
+						for( var field in changedFields ) {
+							changedData[ record[ idField ] ][ field ] = cleanedData[ field ] ?: "";
+						}
+					}
+				}
+
+				versionNumber = _getVersioningService().saveVersionForUpdate(
+					  objectName       = args.objectName
+					, data             = cleanedData
+					, manyToManyData   = manyToManyData
+					, existingRecords  = oldData
+					, changedData      = changedData
+					, filter           = preparedFilter.filter
+					, filterParams     = preparedFilter.filterParams
+					, versionNumber    = args.versionNumber ? args.versionNumber : getNextVersionNumber()
+					, isDraft          = args.isDraft
+				);
+			} else {
+				versionNumber = _getVersioningService().saveVersionForInsert(
+					  objectName     = args.objectName
+					, data           = cleanedData
+					, manyToManyData = manyToManyData
+					, versionNumber  = args.versionNumber ? args.versionNumber : getNextVersionNumber()
+					, isDraft        = args.isDraft
+				);
+			}
+		} else if ( objectIsVersioned( args.objectName ) && existedBefore ) {
+			_getVersioningService().updateLatestVersionWithNonVersionedChanges(
+				  objectName = args.objectName
+				, recordId   = oldData[ idField ][ 1 ]
+				, data       = cleanedData
+			);
+		}
+
+		sql = adapter.getUpsertSql(
+			  tableName       = obj.tableName
+			, insertColumns   = StructKeyArray( cleanedData )
+			, updateColumns   = args.updateColumns
+			, conflictColumns = args.matchColumns
+		);
+		params = _convertDataToQueryParams(
+			  objectName        = args.objectName
+			, columnDefinitions = obj.properties
+			, data              = cleanedData
+			, dbAdapter         = adapter
+		);
+		params = _arrayMerge( params, _convertDataToQueryParams(
+			  objectName        = args.objectName
+			, columnDefinitions = obj.properties
+			, data              = cleanedData
+			, dbAdapter         = adapter
+			, preFix            = "set__"
+		) );
+
+		result = _runSql( sql=sql[1], dsn=obj.dsn, params=params, returnType=adapter.getInsertReturnType(), timeout=args.timeout );
+
+		if ( adapter.requiresManualCommitForTransactions() ) {
+			_runSql( sql='commit', dsn=obj.dsn );
+		}
+
+		recordId = Len( Trim( cleanedData[ idField ] ?: "" ) ) ? cleanedData[ idField ] : ( adapter.getGeneratedKey( result ) ?: "" );
+		inserted = !existedBefore;
+
+		if ( existedBefore && oldData.recordCount ) {
+			recordId = oldData[ idField ][ 1 ];
+		} else if ( !Len( Trim( recordId ) ) ) {
+			var matchedRecord = selectData(
+				  objectName     = args.objectName
+				, filter           = matchFilter
+				, selectFields     = [ "#idField# as id" ]
+				, returntype       = "array"
+			);
+			recordId = matchedRecord[ 1 ].id ?: "";
+		}
+
+		if ( Len( Trim( recordId ) ) ) {
+			for( key in manyToManyData ) {
+				var relationship = getObjectPropertyAttribute( objectName, key, "relationship", "none" );
+
+				if ( relationship == "many-to-many" ) {
+					syncManyToManyData(
+						  sourceObject        = args.objectName
+						, sourceProperty      = key
+						, sourceId            = recordId
+						, targetIdList        = manyToManyData[ key ]
+						, requiresVersionSync = false
+						, isDraft             = args.isDraft
+					);
+				} else if ( relationship == "one-to-many" ) {
+					if ( isOneToManyConfiguratorObject( args.objectName, key ) ) {
+						syncOneToManyConfiguratorData(
+							  sourceObject     = args.objectName
+							, sourceProperty   = key
+							, sourceId         = recordId
+							, configuratorData = manyToManyData[ key ]
+							, versionNumber    = versionNumber
+						);
+					} else {
+						syncOneToManyData(
+							  sourceObject   = args.objectName
+							, sourceProperty = key
+							, sourceId       = recordId
+							, targetIdList   = manyToManyData[ key ]
+						);
+					}
+				}
+			}
+		}
+
+		if ( !requiresVersioning && objectIsVersioned( args.objectName ) && !existedBefore && Len( Trim( recordId ) ) ) {
+			_getVersioningService().saveVersionForInsert(
+				  objectName     = args.objectName
+				, data           = cleanedData
+				, manyToManyData = manyToManyData
+				, versionNumber  = args.versionNumber ? args.versionNumber : getNextVersionNumber()
+				, isDraft        = args.isDraft
+			);
+		}
+
+		if ( args.clearCaches ) {
+			clearRelatedCaches(
+				  objectName              = args.objectName
+				, filter                  = ""
+				, filterParams            = {}
+				, clearSingleRecordCaches = false
+			);
+		}
+
+		var interceptionArgs           = args;
+		    interceptionArgs.id        = recordId;
+		    interceptionArgs.inserted  = inserted;
+		    interceptionArgs.result    = result;
+		_announceInterception( "postUpsertObjectData", interceptionArgs );
+
+		return { id=recordId, inserted=inserted };
+	}
+
+	/**
 	 * Updates records in the database with a new set of data. Returns the number of records affected by the operation.
 	 * \n
 	 * ${arguments}
@@ -2482,30 +2811,7 @@ component displayName="Preside Object Service" {
 		}
 
 		for( var i=1; i <=fields.len(); i++ ){
-			var objName = "";
-			var match   = ReFindNoCase( "([\S]+\.)?\$\{labelfield\}", fields[i], 1, true );
-
-			match = match.len[1] ? Mid( fields[i], match.pos[1], match.len[1] ) : "";
-
-			if ( Len( Trim( match ) ) ) {
-				var labelField = "";
-				if ( ListLen( match, "." ) == 1 ) {
-					objName = arguments.objectName;
-				} else {
-					objName = _resolveObjectNameFromColumnJoinSyntax( startObject=arguments.objectName, joinSyntax=ListFirst( match, "." ) );
-				}
-
-				labelField = getObjectAttribute( objName, "labelfield", "label" );
-				if ( !Len( labelField ) ) {
-					throw( type="PresideObjectService.no.label.field", message="The object [#objName#] has no label field" );
-				}
-
-				if ( ListLen( labelField, "." ) > 1 ) {
-					fields[i] = Replace( fields[i], "#arguments.objectName#.${labelfield}", "${labelfield}", "all" );
-					fields[i] = Replace( fields[i], ".${labelfield}", "$${labelfield}", "all" );
-				}
-				fields[i] = Replace( fields[i], "${labelfield}", labelField, "all" );
-			}
+			fields[i] = _expandLabelFieldPlaceholder( fields[i], arguments.objectName );
 
 			fields[i] = expandFormulaFields(
 				  objectName = arguments.objectName
@@ -2550,9 +2856,8 @@ component displayName="Preside Object Service" {
 		,          boolean autoGroupBy = false
 	) {
 		if ( arguments.autoGroupBy && !Len( arguments.groupBy ) ) {
-			var aggregateRegex = "(group_concat|avg|corr|count|count|covar_pop|covar_samp|cume_dist|dense_rank|min|max|percent_rank|percentile_cont|percentile_disc|rank|regr_avgx|regr_avgy|regr_count|regr_intercept|regr_r2|regr_slope|regr_sxx|regr_sxy|regr_syy|stddev_pop|stddev_samp|sum|var_pop|var_sam)\s?\(";
 			for( var i=ArrayLen( arguments.selectFields ); i>0; i-- ) {
-				if ( ReFindNoCase( aggregateRegex, arguments.selectFields[ i ] ) ) {
+				if ( containsAggregateFunction( arguments.selectFields[ i ] ) ) {
 					ArrayDeleteAt( arguments.selectFields, i );
 				}
 			}
@@ -3545,6 +3850,10 @@ component displayName="Preside Object Service" {
 		return optimised;
 	}
 
+	public boolean function containsAggregateFunction( required string expression ) {
+		return ReFindNoCase( "(group_concat|avg|corr|count|covar_pop|covar_samp|cume_dist|dense_rank|min|max|percent_rank|percentile_cont|percentile_disc|rank|regr_avgx|regr_avgy|regr_count|regr_intercept|regr_r2|regr_slope|regr_sxx|regr_sxy|regr_syy|stddev_pop|stddev_samp|sum|var_pop|var_sam)\s?\(", arguments.expression ) > 0;
+	}
+
 	private struct function _prepareSelectFromVersionTables(
 		  required string  objectName
 		, required string  originalTableName
@@ -3785,6 +4094,66 @@ component displayName="Preside Object Service" {
 		return final;
 	}
 
+	private struct function _upsertDataWithUpdateInsert( required struct args ) {
+		var matchFilter  = {};
+		var updateData   = StructCopy( args.data );
+		var key          = "";
+		var updatedCount = 0;
+		var recordId     = "";
+		var inserted     = false;
+
+		for( key in args.matchColumns ) {
+			matchFilter[ key ] = args.data[ key ];
+			StructDelete( updateData, key );
+		}
+
+		updatedCount = updateData(
+			  objectName              = args.objectName
+			, data                    = updateData
+			, filter                  = matchFilter
+			, updateManyToManyRecords = args.insertManyToManyRecords
+			, isDraft                 = args.isDraft
+			, useVersioning           = args.useVersioning
+			, versionNumber           = args.versionNumber
+			, clearCaches             = false
+			, timeout                 = args.timeout
+		);
+
+		if ( updatedCount ) {
+			var idField = getIdField( args.objectName );
+			var records = selectData(
+				  objectName   = args.objectName
+				, filter       = matchFilter
+				, selectFields = [ "#idField# as id" ]
+				, returntype   = "array"
+			);
+			recordId = records[ 1 ].id ?: "";
+		} else {
+			recordId = insertData(
+				  objectName              = args.objectName
+				, data                    = args.data
+				, insertManyToManyRecords = args.insertManyToManyRecords
+				, isDraft                 = args.isDraft
+				, useVersioning           = args.useVersioning
+				, versionNumber           = args.versionNumber
+				, clearCaches             = false
+				, timeout                 = args.timeout
+			);
+			inserted = true;
+		}
+
+		if ( args.clearCaches ) {
+			clearRelatedCaches(
+				  objectName              = args.objectName
+				, filter                  = ""
+				, filterParams            = {}
+				, clearSingleRecordCaches = false
+			);
+		}
+
+		return { id=recordId, inserted=inserted };
+	}
+
 	private boolean function _isEmptyFilter( required any filter ) {
 		if ( IsStruct( arguments.filter ) ) {
 			return StructIsEmpty( arguments.filter );
@@ -3804,6 +4173,37 @@ component displayName="Preside Object Service" {
 		return REReplaceNoCase( Trim( text ), '\bas\b\s+(\w+)(?!\s*[`\"\[])$', "as #dbAdapter.escapeEntity( "\1" )#" );
 	}
 
+	private string function _expandLabelFieldPlaceholder( required string expression, required string objectName ) {
+		var match      = ReFindNoCase( "([\S]+\.)?\$\{labelfield\}", arguments.expression, 1, true );
+		var objName    = "";
+		var labelField = "";
+		var expanded   = arguments.expression;
+
+		match = match.len[1] ? Mid( arguments.expression, match.pos[1], match.len[1] ) : "";
+
+		if ( !Len( Trim( match ) ) ) {
+			return arguments.expression;
+		}
+
+		if ( ListLen( match, "." ) == 1 ) {
+			objName = arguments.objectName;
+		} else {
+			objName = _resolveObjectNameFromColumnJoinSyntax( startObject=arguments.objectName, joinSyntax=ListFirst( match, "." ) );
+		}
+
+		labelField = getObjectAttribute( objName, "labelfield", "label" );
+		if ( !Len( labelField ) ) {
+			throw( type="PresideObjectService.no.label.field", message="The object [#objName#] has no label field" );
+		}
+
+		if ( ListLen( labelField, "." ) > 1 ) {
+			expanded = Replace( expanded, "#arguments.objectName#.${labelfield}", "${labelfield}", "all" );
+			expanded = Replace( expanded, ".${labelfield}", "$${labelfield}", "all" );
+		}
+
+		return Replace( expanded, "${labelfield}", labelField, "all" );
+	}
+
 	private string function _parseOrderBy( required string orderBy, required string objectName, required any dbAdapter, required struct filterParams, required array extraJoins, required array selectFields ) {
 		var items         = ListToArray( arguments.orderBy );
 		var rebuilt       = [];
@@ -3813,7 +4213,12 @@ component displayName="Preside Object Service" {
 		var aggregateArgs = {};
 
 		for( var item in items ) {
-			propertyName = expandFormulaFields( objectName=arguments.objectName, expression=Trim( ListFirst( item, " " ) ), dbAdapter=arguments.dbAdapter, includeAlias=false );
+			propertyName = expandFormulaFields(
+				  objectName   = arguments.objectName
+				, expression   = _expandLabelFieldPlaceholder( Trim( ListFirst( item, " " ) ), arguments.objectName )
+				, dbAdapter    = arguments.dbAdapter
+				, includeAlias = false
+			);
 			direction    = ListLen( item, " " ) > 1 ? " " & ListRest( item, " ") : "";
 
 			if ( left( propertyName, 4 ) == "agg:" ) {
@@ -4245,10 +4650,9 @@ component displayName="Preside Object Service" {
 	private string function _autoCalculateGroupBy( required array selectFields, required string objectName, required any adapter ) {
 		var groupBy            = [];
 		var hasAggregateFields = false;
-		var aggregateRegex     = "(group_concat|avg|corr|count|count|covar_pop|covar_samp|cume_dist|dense_rank|min|max|percent_rank|percentile_cont|percentile_disc|rank|regr_avgx|regr_avgy|regr_count|regr_intercept|regr_r2|regr_slope|regr_sxx|regr_sxy|regr_syy|stddev_pop|stddev_samp|sum|var_pop|var_sam)\s?\(";
 
 		for( var field in selectFields ) {
-			var isAggregate = ReFindNoCase( aggregateRegex, field ) || ReFindNoCase( "__agg_.+__.+\.aggValue", field );
+			var isAggregate = containsAggregateFunction( field ) || ReFindNoCase( "__agg_.+__.+\.aggValue", field );
 
 			if ( isAggregate ) {
 				hasAggregateFields = true;

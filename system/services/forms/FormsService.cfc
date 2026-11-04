@@ -188,7 +188,8 @@ component displayName="Forms service" {
 		var frm = getForm( arguments.formName );
 
 		for( var tab in frm.tabs ){
-			for( var fieldset in tab.fieldsets ) {
+			var fieldsets = tab.fieldsets ?: [];
+			for( var fieldset in fieldsets ) {
 				for( var field in fieldset.fields ) {
 					if ( ( field.name ?: "" ) eq arguments.fieldName ) {
 						return field;
@@ -252,7 +253,8 @@ component displayName="Forms service" {
 			if ( IsBoolean( tab.deleted ?: "" ) && tab.deleted ) {
 				continue;
 			}
-			for( var fieldset in tab.fieldsets ) {
+			var fieldsets = tab.fieldsets ?: [];
+			for( var fieldset in fieldsets ) {
 				if ( IsBoolean( fieldset.deleted ?: "" ) && fieldset.deleted ) {
 					continue;
 				}
@@ -291,7 +293,8 @@ component displayName="Forms service" {
 			if ( IsBoolean( tab.deleted ?: "" ) && tab.deleted ) {
 				continue;
 			}
-			for( var fieldset in tab.fieldsets ) {
+			var fieldsets = tab.fieldsets ?: [];
+			for( var fieldset in fieldsets ) {
 				if ( IsBoolean( fieldset.deleted ?: "" ) && fieldset.deleted ) {
 					continue;
 				}
@@ -424,7 +427,8 @@ component displayName="Forms service" {
 				tab.id = CreateUUId();
 			}
 
-			for( var fieldset in tab.fieldsets ) {
+			var fieldsets = tab.fieldsets ?: [];
+			for( var fieldset in fieldsets ) {
 				if ( IsBoolean( fieldset.deleted ?: "" ) && fieldset.deleted ) {
 					continue;
 				}
@@ -866,6 +870,40 @@ component displayName="Forms service" {
 	}
 
 	/**
+	 * Returns whether or not the currently logged in admin user has permission
+	 * to access the given form, based on the optional `permissionKey` attribute
+	 * declared on the root `form` element of the form's definition. Forms that
+	 * do not declare a permission key are treated as accessible by default;
+	 * use the `allowedIfNoPermissionKey` argument to change that behaviour.
+	 *
+	 * @autodoc                        true
+	 * @formName.hint                  The name of the form whose access you wish to check
+	 * @permissionContext.hint         Optional context for permission lookups (see [[permissionsservice-haspermission]])
+	 * @permissionContextKeys.hint     Optional array of context keys for permission lookups (see [[permissionsservice-haspermission]])
+	 * @allowedIfNoPermissionKey.hint  Whether or not access is allowed when the form does not declare a permission key
+	 *
+	 */
+	public boolean function userCanAccessForm(
+		  required string  formName
+		,          string  permissionContext        = ""
+		,          array   permissionContextKeys    = []
+		,          boolean allowedIfNoPermissionKey = true
+	) {
+		var theForm       = getForm( arguments.formName );
+		var permissionKey = Trim( theForm.permissionKey ?: "" );
+
+		if ( !Len( permissionKey ) ) {
+			return arguments.allowedIfNoPermissionKey;
+		}
+
+		return $hasAdminPermission(
+			  permissionKey = permissionKey
+			, context       = arguments.permissionContext
+			, contextKeys   = arguments.permissionContextKeys
+		);
+	}
+
+	/**
 	 * Takes a form definition (struct) and removes all the tabs, fieldsets and fields
 	 * to which the currently logged in admin user does not have permission to edit.
 	 * Returns a new structure with the potentially removed elements.
@@ -1033,11 +1071,7 @@ component displayName="Forms service" {
 			forms[ formName ] = formDefinition;
 
 			if ( arguments.isDynamic ) {
-				$getSystemConfigurationService().saveSetting(
-					  category = "dynamicform"
-					, setting  = Hash( formName )
-					, value    = SerializeJson( formDefinition )
-				);
+				_saveDynamicFormIfUpdated( formName, formDefinition );
 			}
 
 			return true;
@@ -1395,7 +1429,8 @@ component displayName="Forms service" {
 				continue;
 			}
 
-			for( var fieldSet in tab.fieldSets ){
+			var fieldsets = tab.fieldSets ?: [];
+			for( var fieldSet in fieldsets ){
 				var matchingFieldset = {};
 				if ( Len( Trim( fieldSet.id ?: "" ) ) ) {
 					for( var mFieldset in matchingTab.fieldsets ){
@@ -1661,6 +1696,24 @@ component displayName="Forms service" {
 		}
 
 		return false;
+	}
+
+	private void function _saveDynamicFormIfUpdated( required string formName, required struct formDefinition ) {
+		var settingName   = Hash( arguments.formName );
+		var serialized    = SerializeJson( arguments.formDefinition );
+		var configService = $getSystemConfigurationService();
+		var setting       = configService.getSetting( category="dynamicform", setting=settingName );
+
+		if ( IsSimpleValue( setting ) && setting == serialized ) {
+			return;
+		}
+
+		configService.saveSetting(
+			  category       = "dynamicform"
+			, setting        = settingName
+			, value          = serialized
+			, skipVersioning = true
+		);
 	}
 
 // GETTERS AND SETTERS
