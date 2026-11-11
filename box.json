@@ -40,7 +40,8 @@
         "coldbox":"5.4.0",
         "JSONPrettyPrint":"1.4.1",
         "cfflow":"0.8.0",
-        "chrono":"0.1.2"
+        "chrono":"0.1.2",
+        "cfsignatures":"1.2.0+0000029"
     },
     "devDependencies":{
         "testbox":"5.4.0"
@@ -57,7 +58,8 @@
         "cbjavaloader":"system/modules/cbjavaloader/",
         "coldbox":"system/externals/coldbox/",
         "JSONPrettyPrint":"system/modules/JSONPrettyPrint/",
-        "chrono":"system/modules/chrono/"
+        "chrono":"system/modules/chrono/",
+		"cfsignatures":"system/modules/cfsignatures/"
     },
     "ignore":[
         ".git/*",
